@@ -1,0 +1,535 @@
+{
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "metadata": {
+    "colab": {
+      "name": "ShapefileGenrator.ipynb",
+      "provenance": [],
+      "collapsed_sections": [],
+      "authorship_tag": "ABX9TyN/0ULZMCAhOETtv7YkNdxT",
+      "include_colab_link": true
+    },
+    "kernelspec": {
+      "name": "python3",
+      "display_name": "Python 3"
+    }
+  },
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "view-in-github",
+        "colab_type": "text"
+      },
+      "source": [
+        "<a href=\"https://colab.research.google.com/github/datta07/BrainyQuotesAPI/blob/master/data.json\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "m5Rh7hqMkuv9",
+        "colab_type": "code",
+        "colab": {}
+      },
+      "source": [
+        "import requests\n",
+        "from bs4 import BeautifulSoup\n",
+        "import json\n",
+        "from IPython.display import display\n",
+        "import threading\n",
+        "from threading import Thread\n",
+        "import folium"
+      ],
+      "execution_count": 1,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "1Y4goIRfrCBK",
+        "colab_type": "code",
+        "colab": {}
+      },
+      "source": [
+        "#Alternative thread class for return value on call to join\n",
+        "class ThreadWithReturnValue(Thread):\n",
+        "\tdef __init__(self, group=None, target=None, name=None,args=(), kwargs={}, Verbose=None):\n",
+        "\t\tThread.__init__(self, group, target, name, args, kwargs)\n",
+        "\t\tself._return = None\n",
+        "\t\tself._stop_event = threading.Event()\n",
+        "\tdef run(self):\n",
+        "\t\t#print(type(self._target))\n",
+        "\t\tif self._target is not None:\n",
+        "\t\t\tself._return = self._target(*self._args,**self._kwargs)\n",
+        "\tdef join(self, *args):\n",
+        "\t\tThread.join(self, *args)\n",
+        "\t\treturn self._return\n",
+        "\tdef terminate(self):\n",
+        "\t\tself._stop_event.set()"
+      ],
+      "execution_count": 2,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "shMnW6X6ruHk",
+        "colab_type": "code",
+        "colab": {}
+      },
+      "source": [
+        "# Returns the coordinate data for the shapefile\n",
+        "def updateData(value):\n",
+        "    headers={\"user-agent\": \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.116 Safari/537.36\",\n",
+        "             \"x-csrf-token\": \"mAZokpMemG2rC50LNDEYHGzlEKblkoVxFXE5/7WtOzscVLVOW81ZI4IB+9RHOzf3T6DV6xat53v0BZVfEbHvxw==\",\n",
+        "             \"x-requested-with\": \"XMLHttpRequest\",\n",
+        "             \"accept\": \"application/xml, text/xml, */*; q=0.01\"}\n",
+        "    res=requests.get(\"https://www.openstreetmap.org/api/0.6/relation/\"+value+\"/full\",headers=headers)\n",
+        "    soup = BeautifulSoup(res.text, 'lxml')\n",
+        "    data=soup.findAll(\"node\")\n",
+        "    latLong={}\n",
+        "    for i in data:\n",
+        "        latLong[i['id']]=[float(i['lon']),float(i['lat'])]\n",
+        "    soup1=soup.findAll(\"way\")\n",
+        "    total_order={}\n",
+        "    no=0\n",
+        "    for i in soup1:\n",
+        "        order=[]\n",
+        "        data=i.findAll(\"nd\")\n",
+        "        for j in data:\n",
+        "            order.append(j['ref'])\n",
+        "        key=order[0]\n",
+        "        while (key in total_order):\n",
+        "            order.reverse()\n",
+        "            order.pop()\n",
+        "            order+=total_order.pop(key)\n",
+        "            key=order[0]\t\n",
+        "        total_order[key]=order\n",
+        "\n",
+        "    output=[]\n",
+        "    try:\n",
+        "      while len(total_order)>0:\n",
+        "          start=list(total_order.keys())[0]\n",
+        "          arr=total_order[start]\n",
+        "          while start!=arr[-1]:\n",
+        "              arr+=total_order.pop(arr[-1])\n",
+        "          output.append(total_order.pop(start))\n",
+        "      result=[]\n",
+        "      for arr in output:\n",
+        "          end_result=[]\n",
+        "          for i in arr:\n",
+        "              end_result.append(latLong[i])\n",
+        "          result.append(end_result)\n",
+        "      return result\n",
+        "    except Exception as e:\n",
+        "      return False"
+      ],
+      "execution_count": 3,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "0y8B6op90OQI",
+        "colab_type": "code",
+        "colab": {}
+      },
+      "source": [
+        "# Function to json in data.json\n",
+        "def saveJson(data):\n",
+        "  with open('data.json','w') as f:\n",
+        "    json.dump(data,f)\n",
+        "  print(\"data have been updated\")\n",
+        "\n",
+        "# Function to return Json from data.json\n",
+        "def getJson():\n",
+        "  with open('data.json','r') as f:\n",
+        "    return json.load(f)"
+      ],
+      "execution_count": 4,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "RmcUjrWNrzL4",
+        "colab_type": "code",
+        "colab": {}
+      },
+      "source": [
+        "def showMap(Geodata):\n",
+        "  f = folium.Figure(width=800, height=900)\n",
+        "  india_map=folium.Map(location=[23.1815,79.9864],zoom_start=5,tiles='Stamen Toner').add_to(f)\n",
+        "  andhra=folium.map.FeatureGroup()\n",
+        "  andhra.add_child(folium.GeoJson(Geodata))\n",
+        "  india_map.add_child(andhra)\n",
+        "  display(india_map)"
+      ],
+      "execution_count": 5,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "LNUevUDZw5xd",
+        "colab_type": "code",
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 1000
+        },
+        "outputId": "575f6f4e-ce77-48bb-a683-1f4ab759e032"
+      },
+      "source": [
+        "data={\n",
+        "  \"type\": \"FeatureCollection\",\n",
+        "  \"features\": []\n",
+        "}\n",
+        "dataValues={\n",
+        "    'UTTAR PRADESH':{'AGRA': '1958554', 'ALIGARH': '1958143', 'ALLAHABAD': '1959819', 'AMBEDKAR NAGAR': '1959867', 'AMETHI': '9540099', 'AMROHA': '1958055', 'AURAIYA': '1959117', 'AZAMGARH': '1959868', 'BAGPAT': '1958008', 'BAHRAICH': '1958963', 'BALLIA': '1959869', 'BALRAMPUR': '1958964', 'BANDA': '1959820', 'BARABANKI': '1959692', 'BAREILLY': '1958196', 'BASTI': '1959787', 'BIJNOR': '1958009', 'BUDAUN': '1958555', 'BULANDSHAHR': '1958144', 'CHANDAULI': '1959911', 'CHITRAKOOT': '9538920', 'DEORIA': '1959870', 'ETAH': '1958556', 'ETAWAH': '1959118', 'FAIZABAD': '1959788', 'FARRUKHABAD': '1958605', 'FATEHPUR': '1959789', 'FIROZABAD': '1958557', 'GAUTAM BUDDH NAGAR': '1958053', 'GHAZIABAD': '1958054', 'GHAZIPUR': '1959871', 'GONDA': '1959699', 'GORAKHPUR': '1959872', 'HAMIRPUR': '1959790', 'HAPUR': '9539177', 'HARDOI': '1959017', 'HATHRAS': '1958145', 'JALAUN': '1959120', 'JAUNPUR': '1959912', 'JHANSI': '1959122', 'KANNAUJ': '1959123', 'KANPUR DEHAT': '1959124', 'KANPUR NAGAR': '1959036', 'KASGANJ': '9539644', 'KAUSHAMBI': '1959821', 'KUSHINAGAR': '1958983', 'LAKHIMPUR KHERI': '1958965', 'LALITPUR': '1959125', 'LUCKNOW': '1959018', 'MAHARAJGANJ': '1958984', 'MAHOBA': '1959822', 'MAINPURI': '1958606', 'MATHURA': '1958146', 'MAU': '1959873', 'MEERUT': '1958010', 'MIRZAPUR': '1959913', 'MORADABAD': '1958197', 'MUZAFFARNAGAR': '1958011', 'PILIBHIT': '1958607', 'PRATAPGARH': '1959823', 'RAEBARELI': '1959791', 'RAMPUR': '1958198', 'SAHARANPUR': '1958012', 'SAMBHAL': '9540376', 'SANT KABIR NAGAR': '1959874', 'BHADOHI': '1959914', 'SHAHJAHANPUR': '1958608', 'SHAMLI': '9539710', 'SHRAVASTI': '1958966', 'SIDDHARTHNAGAR': '1958967', 'SITAPUR': '1959019', 'SONBHADRA': '1959915', 'SULTANPUR': '1959824', 'UNNAO': '1804770', 'VARANASI': '1959916'}\n",
+        "}\n",
+        "\n",
+        "fails=[]\n",
+        "for state in dataValues:\n",
+        "  arr={}\n",
+        "  for i in dataValues[state]:\n",
+        "      k=ThreadWithReturnValue(target=updateData,args=(dataValues[state][i],))\n",
+        "      k.start()\n",
+        "      arr[i]=k\n",
+        "  geojson=[]\n",
+        "  for i in arr:\n",
+        "      result=arr[i].join()\n",
+        "      if (result==False):\n",
+        "        fails.append([state,i])\n",
+        "        continue\n",
+        "      print(i,\"updated in json\")\n",
+        "      geojson.append({\n",
+        "            \"type\": \"Feature\",\n",
+        "            \"properties\": {\n",
+        "            \"Name\":i,\n",
+        "            \"State\":state},\n",
+        "            \"geometry\": {\n",
+        "              \"type\": \"Polygon\",\n",
+        "              \"coordinates\": result\n",
+        "            }\n",
+        "          })\n",
+        "  for i in geojson:\n",
+        "      data[\"features\"].append(i)\n",
+        "  print(\"completed\",state)\n",
+        "print(\"Fails are\",fails)\n"
+      ],
+      "execution_count": null,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "text": [
+            "AGRA updated in json\n",
+            "ALIGARH updated in json\n",
+            "ALLAHABAD updated in json\n",
+            "AMBEDKAR NAGAR updated in json\n",
+            "AMETHI updated in json\n",
+            "AMROHA updated in json\n",
+            "AURAIYA updated in json\n",
+            "AZAMGARH updated in json\n",
+            "BAGPAT updated in json\n",
+            "BAHRAICH updated in json\n",
+            "BALLIA updated in json\n",
+            "BALRAMPUR updated in json\n",
+            "BANDA updated in json\n",
+            "BARABANKI updated in json\n",
+            "BAREILLY updated in json\n",
+            "BASTI updated in json\n",
+            "BIJNOR updated in json\n",
+            "BUDAUN updated in json\n",
+            "BULANDSHAHR updated in json\n",
+            "CHANDAULI updated in json\n",
+            "CHITRAKOOT updated in json\n",
+            "DEORIA updated in json\n",
+            "ETAH updated in json\n",
+            "ETAWAH updated in json\n",
+            "FAIZABAD updated in json\n",
+            "FARRUKHABAD updated in json\n",
+            "FATEHPUR updated in json\n",
+            "FIROZABAD updated in json\n",
+            "GAUTAM BUDDH NAGAR updated in json\n",
+            "GHAZIABAD updated in json\n",
+            "GHAZIPUR updated in json\n",
+            "GONDA updated in json\n",
+            "GORAKHPUR updated in json\n",
+            "HAMIRPUR updated in json\n",
+            "HAPUR updated in json\n",
+            "HARDOI updated in json\n",
+            "HATHRAS updated in json\n",
+            "JALAUN updated in json\n",
+            "JAUNPUR updated in json\n",
+            "JHANSI updated in json\n",
+            "KANNAUJ updated in json\n",
+            "KANPUR DEHAT updated in json\n",
+            "KANPUR NAGAR updated in json\n",
+            "KASGANJ updated in json\n",
+            "KAUSHAMBI updated in json\n",
+            "KUSHINAGAR updated in json\n",
+            "LAKHIMPUR KHERI updated in json\n",
+            "LALITPUR updated in json\n",
+            "LUCKNOW updated in json\n",
+            "MAHARAJGANJ updated in json\n",
+            "MAHOBA updated in json\n",
+            "MAINPURI updated in json\n",
+            "MATHURA updated in json\n",
+            "MAU updated in json\n",
+            "MEERUT updated in json\n",
+            "MIRZAPUR updated in json\n",
+            "MORADABAD updated in json\n",
+            "MUZAFFARNAGAR updated in json\n",
+            "PILIBHIT updated in json\n",
+            "PRATAPGARH updated in json\n",
+            "RAEBARELI updated in json\n",
+            "RAMPUR updated in json\n",
+            "SAHARANPUR updated in json\n",
+            "SAMBHAL updated in json\n",
+            "SANT KABIR NAGAR updated in json\n",
+            "BHADOHI updated in json\n",
+            "SHAHJAHANPUR updated in json\n",
+            "SHAMLI updated in json\n",
+            "SHRAVASTI updated in json\n",
+            "SIDDHARTHNAGAR updated in json\n",
+            "SITAPUR updated in json\n",
+            "SONBHADRA updated in json\n",
+            "SULTANPUR updated in json\n",
+            "UNNAO updated in json\n",
+            "VARANASI updated in json\n",
+            "completed UTTAR PRADESH\n",
+            "Fails are []\n"
+          ],
+          "name": "stdout"
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "FYpKL3L7UqoW",
+        "colab_type": "code",
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 121
+        },
+        "outputId": "9b9490a1-8dd5-4143-8ff3-1a7a2ea36fb3"
+      },
+      "source": [
+        "from google.colab import drive\n",
+        "drive.mount('/gdrive')"
+      ],
+      "execution_count": 6,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "text": [
+            "Go to this URL in a browser: https://accounts.google.com/o/oauth2/auth?client_id=947318989803-6bn6qk8qdgf4n4g3pfee6491hc0brc4i.apps.googleusercontent.com&redirect_uri=urn%3aietf%3awg%3aoauth%3a2.0%3aoob&response_type=code&scope=email%20https%3a%2f%2fwww.googleapis.com%2fauth%2fdocs.test%20https%3a%2f%2fwww.googleapis.com%2fauth%2fdrive%20https%3a%2f%2fwww.googleapis.com%2fauth%2fdrive.photos.readonly%20https%3a%2f%2fwww.googleapis.com%2fauth%2fpeopleapi.readonly\n",
+            "\n",
+            "Enter your authorization code:\n",
+            "··········\n",
+            "Mounted at /gdrive\n"
+          ],
+          "name": "stdout"
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "GDx2q7AAsDiW",
+        "colab_type": "code",
+        "colab": {}
+      },
+      "source": [
+        "showMap(data)"
+      ],
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "VNBB0YRmxMUN",
+        "colab_type": "code",
+        "colab": {}
+      },
+      "source": [
+        "saveJson(data)"
+      ],
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "1PQdTuFsSfSM",
+        "colab_type": "code",
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 34
+        },
+        "outputId": "2e527b51-8ffe-456b-da2c-415801247b2b"
+      },
+      "source": [
+        "# Import PyDrive and associated libraries.\n",
+        "# This only needs to be done once in a notebook.\n",
+        "from pydrive.auth import GoogleAuth\n",
+        "from pydrive.drive import GoogleDrive\n",
+        "from google.colab import auth\n",
+        "from oauth2client.client import GoogleCredentials\n",
+        "\n",
+        "# Authenticate and create the PyDrive client.\n",
+        "# This only needs to be done once in a notebook.\n",
+        "auth.authenticate_user()\n",
+        "gauth = GoogleAuth()\n",
+        "gauth.credentials = GoogleCredentials.get_application_default()\n",
+        "drive = GoogleDrive(gauth)\n",
+        "\n",
+        "# Create & upload a text file.\n",
+        "uploaded = drive.CreateFile({'title': 'data.json'})\n",
+        "uploaded.SetContentString(json.dumps(data))\n",
+        "uploaded.Upload()\n",
+        "print('Uploaded file with ID {}'.format(uploaded.get('id')))\n",
+        "\n",
+        "data=open(\"/gdrive/My Drive/GeoJson/data.json\",'r').read()\n",
+        "with open(\"data.json\",\"w\") as f:\n",
+        "  json.dump(data,f)"
+      ],
+      "execution_count": null,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "text": [
+            "Uploaded file with ID 18oLMN952rXyPRVyWUMLSOR1GDixo7lt9\n"
+          ],
+          "name": "stdout"
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "SYW1jSkyA42c",
+        "colab_type": "code",
+        "colab": {}
+      },
+      "source": [
+        "\n",
+        "!git config --global user.name \"datta07\"\n",
+        "!git config --global user.email \"akula.gurudatta@gmail.com\""
+      ],
+      "execution_count": 26,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "3BslCQbGVsQ7",
+        "colab_type": "code",
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 50
+        },
+        "outputId": "125dc659-886e-4956-89b2-c81c8b6f754e"
+      },
+      "source": [
+        "!git init\n",
+        "!git remote add origin https://github.com/datta07/openStreetMap2Geojson.git"
+      ],
+      "execution_count": 27,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "text": [
+            "Reinitialized existing Git repository in /content/.git/\n",
+            "fatal: remote origin already exists.\n"
+          ],
+          "name": "stdout"
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "aQbBZtlEXF6B",
+        "colab_type": "code",
+        "colab": {}
+      },
+      "source": [
+        "!git add data.json"
+      ],
+      "execution_count": 28,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "l5LpKwppXViS",
+        "colab_type": "code",
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 118
+        },
+        "outputId": "65535a35-4113-4c79-aa16-147258131d91"
+      },
+      "source": [
+        "!git commit -m \"first commit\""
+      ],
+      "execution_count": 29,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "text": [
+            "On branch master\n",
+            "Untracked files:\n",
+            "\t\u001b[31m.config/\u001b[m\n",
+            "\t\u001b[31msample_data/\u001b[m\n",
+            "\n",
+            "nothing added to commit but untracked files present\n"
+          ],
+          "name": "stdout"
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "6wRD37IRXt9X",
+        "colab_type": "code",
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 34
+        },
+        "outputId": "920cce61-14a2-4a04-ddba-9b85945a99fe"
+      },
+      "source": [
+        "!git push -u origin master"
+      ],
+      "execution_count": 30,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "text": [
+            "fatal: could not read Username for 'https://github.com': No such device or address\n"
+          ],
+          "name": "stdout"
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "UTlv2VWBX_NH",
+        "colab_type": "code",
+        "colab": {}
+      },
+      "source": [
+        ""
+      ],
+      "execution_count": null,
+      "outputs": []
+    }
+  ]
+}
